@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import heic2any from 'heic2any';
-import { Upload, Share, RotateCcw, Calendar, Type, Sparkles, X, Download, Smartphone, Monitor, Box, Camera, Sun, StickyNote } from 'lucide-react';
+import { Upload, Share, RotateCcw, Calendar, Type, Sparkles, X, Download, Smartphone, Monitor, Box, Camera, Sun, StickyNote, CircleDashed, ZoomIn } from 'lucide-react';
 
 const PolaroidStudio = () => {
   // --- STATE ---
@@ -8,32 +8,29 @@ const PolaroidStudio = () => {
   const [caption, setCaption] = useState('');
   const [frameColor, setFrameColor] = useState('#ffffff');
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Format ('square', 'mini', 'wide')
   const [format, setFormat] = useState('square');
 
-  // UPDATED DEFAULTS
+  // EFFECTS
   const [showDate, setShowDate] = useState(true);
   const [showGrain, setShowGrain] = useState(true);
-  
-  // Analog Pack Toggles
   const [showLeak, setShowLeak] = useState(false);
   const [showTape, setShowTape] = useState(false);
+  const [showVignette, setShowVignette] = useState(true);
 
   const [fontType, setFontType] = useState('hand'); 
   const [dateStr, setDateStr] = useState("'98 04 25");
   const [activeFilter, setActiveFilter] = useState('vintage');
 
-  // Animation State
-  const [isDeveloping, setIsDeveloping] = useState(false);
-
-  // Dragging
+  // ZOOM & POSITION
+  const [zoom, setZoom] = useState(1);
+  const [baseDims, setBaseDims] = useState({ w: 0, h: 0 }); // Store original scaled dimensions
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
-  // Mobile Save Fallback
+  // Animation & 3D
+  const [isDeveloping, setIsDeveloping] = useState(false);
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [generatedImage, setGeneratedImage] = useState(null); 
 
   // Refs
@@ -43,46 +40,44 @@ const PolaroidStudio = () => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
-  // --- FILTERS ---
+  // --- CONFIG ---
   const filterStyles = {
     normal: 'none',
-    vintage: 'contrast(1.2) sepia(0.2) saturate(0.85) hue-rotate(-5deg) brightness(1.05)',
-    bw: 'grayscale(1) contrast(1.2) brightness(1.1)',
-    warm: 'sepia(0.4) saturate(1.2) contrast(1.1)',
-    cool: 'contrast(1.1) saturate(1.1) hue-rotate(10deg) brightness(1.1) sepia(0.1)',
-    dramatic: 'contrast(1.4) saturate(1.2) sepia(0.1) brightness(0.9)'
+    // UPDATED: Added blur(0.5px) for "Classic Film" softness
+    vintage: 'contrast(1.2) sepia(0.2) saturate(0.85) hue-rotate(-5deg) brightness(1.05) blur(0.5px)',
+    bw: 'grayscale(1) contrast(1.2) brightness(1.1) blur(0.5px)',
+    warm: 'sepia(0.4) saturate(1.2) contrast(1.1) blur(0.5px)',
+    cool: 'contrast(1.1) saturate(1.1) hue-rotate(10deg) brightness(1.1) sepia(0.1) blur(0.5px)',
+    dramatic: 'contrast(1.4) saturate(1.2) sepia(0.1) brightness(0.9) blur(0.5px)'
   };
 
+  // UPDATED: Thicker Borders for Realism
   const formatConfig = {
-    square: {
-        label: 'Square',
-        icon: <Box size={16} />,
-        frameClass: 'max-w-[400px]', 
-        aspectClass: 'aspect-square',
-        padding: '20px 20px 80px 20px',
-        exportWidth: 1080
+    square: { 
+        label: 'Square', icon: <Box size={14} />, 
+        frameClass: 'max-w-[420px]', 
+        aspectClass: 'aspect-square', 
+        padding: '30px 30px 100px 30px', // Thicker
+        exportWidth: 1080 
     },
-    mini: {
-        label: 'Mini',
-        icon: <Smartphone size={16} />,
-        frameClass: 'max-w-[320px]', 
+    mini: { 
+        label: 'Mini', icon: <Smartphone size={14} />, 
+        frameClass: 'max-w-[340px]', 
         aspectClass: 'aspect-[3/4]', 
-        padding: '18px 18px 90px 18px',
+        padding: '25px 25px 110px 25px', // Thicker
         exportWidth: 800 
     },
-    wide: {
-        label: 'Wide',
-        icon: <Monitor size={16} />,
-        frameClass: 'max-w-[500px]',
+    wide: { 
+        label: 'Wide', icon: <Monitor size={14} />, 
+        frameClass: 'max-w-[520px]', 
         aspectClass: 'aspect-[4/3]', 
-        padding: '20px 20px 70px 20px',
-        exportWidth: 1200
+        padding: '30px 30px 90px 30px', // Thicker
+        exportWidth: 1200 
     }
   };
-
   const currentFormat = formatConfig[format];
 
-  // --- 3D TILT ---
+  // --- LOGIC ---
   const handleMouseMove = (e) => {
     if (!containerRef.current || isDragging || window.innerWidth < 768) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -92,9 +87,7 @@ const PolaroidStudio = () => {
     const yRot = ((x - rect.width / 2) / rect.width) * 6;
     setTilt({ x: xRot, y: yRot });
   };
-  const handleMouseLeave = () => setTilt({ x: 0, y: 0 });
 
-  // --- UPLOAD ---
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -112,43 +105,43 @@ const PolaroidStudio = () => {
         setImage(event.target.result);
         setIsProcessing(false);
         setIsDeveloping(true);
+        setZoom(1); // Reset zoom on new upload
         setTimeout(() => setIsDeveloping(false), 2500); 
       };
       reader.readAsDataURL(blob);
-    } catch (err) {
-      alert("Error processing image.");
-      setIsProcessing(false);
-    }
+    } catch (err) { alert("Error processing image."); setIsProcessing(false); }
   };
 
-  // --- AUTO-CENTERING ---
+  // UPDATED: Calculate Base Dimensions for Zooming
   const handleImageLoad = (e) => {
     const img = e.target;
     const container = img.parentElement;
+    
+    // Calculate the "Cover" dimensions (base 1x scale)
     const scale = Math.max(container.offsetWidth / img.naturalWidth, container.offsetHeight / img.naturalHeight);
-    img.style.width = `${img.naturalWidth * scale}px`;
-    img.style.height = `${img.naturalHeight * scale}px`;
+    
+    const baseW = img.naturalWidth * scale;
+    const baseH = img.naturalHeight * scale;
+    
+    setBaseDims({ w: baseW, h: baseH });
+    
+    // Center it initially
     setPosition({ 
-        x: (container.offsetWidth - (img.naturalWidth * scale)) / 2, 
-        y: (container.offsetHeight - (img.naturalHeight * scale)) / 2 
+        x: (container.offsetWidth - baseW) / 2, 
+        y: (container.offsetHeight - baseH) / 2 
     });
   };
 
-  useEffect(() => {
-    if(image && imgRef.current) setPosition({x:0, y:0}); 
-  }, [format]);
+  useEffect(() => { if(image && imgRef.current) setPosition({x:0, y:0}); }, [format]);
 
-  // --- SAVE ---
   const handleSave = async () => {
     if (!image || !frameRef.current || !canvasRef.current) return;
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const targetWidth = currentFormat.exportWidth; 
     const frameEl = frameRef.current;
     const multiplier = targetWidth / frameEl.offsetWidth;
     const style = window.getComputedStyle(frameEl);
-    
     const pLeft = parseFloat(style.paddingLeft) * multiplier;
     const pTop = parseFloat(style.paddingTop) * multiplier;
     const pBottom = parseFloat(style.paddingBottom) * multiplier;
@@ -163,8 +156,7 @@ const PolaroidStudio = () => {
     // 1. PAPER
     ctx.fillStyle = frameColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Paper Noise
+    // Noise
     ctx.save();
     ctx.globalAlpha = 0.05;
     const noiseSize = 64; 
@@ -181,9 +173,10 @@ const PolaroidStudio = () => {
     ctx.beginPath();
     ctx.rect(pLeft, pTop, photoWidth, photoHeight);
     ctx.clip();
-
+    
     if (imgRef.current) {
         const imgEl = imgRef.current;
+        // IMPORTANT: Use the computed style width (which includes zoom)
         const drawW = parseFloat(imgEl.style.width) * multiplier;
         const drawH = parseFloat(imgEl.style.height) * multiplier;
         const drawX = pLeft + (position.x * multiplier);
@@ -193,12 +186,21 @@ const PolaroidStudio = () => {
         ctx.filter = 'none';
     }
 
+    // Vignette
+    if (showVignette) {
+        const gradient = ctx.createRadialGradient(pLeft + photoWidth/2, pTop + photoHeight/2, photoWidth * 0.3, pLeft + photoWidth/2, pTop + photoHeight/2, photoWidth * 0.8);
+        gradient.addColorStop(0, "rgba(0,0,0,0)");
+        gradient.addColorStop(1, "rgba(0,0,0,0.5)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(pLeft, pTop, photoWidth, photoHeight);
+    }
+
     // Light Leak
     if (showLeak) {
         ctx.globalCompositeOperation = 'screen';
         const gradient = ctx.createLinearGradient(pLeft, pTop, pLeft + photoWidth * 0.5, pTop + photoHeight);
-        gradient.addColorStop(0, 'rgba(255, 150, 50, 0.4)'); // Orange
-        gradient.addColorStop(0.4, 'rgba(255, 100, 50, 0.2)'); // Reddish
+        gradient.addColorStop(0, 'rgba(255, 150, 50, 0.4)'); 
+        gradient.addColorStop(0.4, 'rgba(255, 100, 50, 0.2)');
         gradient.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = gradient;
         ctx.fillRect(pLeft, pTop, photoWidth, photoHeight);
@@ -226,14 +228,12 @@ const PolaroidStudio = () => {
     if (showTape) {
         ctx.save();
         ctx.translate(canvas.width / 2, 0);
-        ctx.rotate(0.02); // Slight rotation
-        ctx.fillStyle = "rgba(255, 255, 235, 0.6)"; // Beige/Tape color
+        ctx.rotate(0.02);
+        ctx.fillStyle = "rgba(255, 255, 235, 0.6)"; 
         const tapeW = 160 * multiplier;
         const tapeH = 40 * multiplier;
-        // Draw Shadow first
         ctx.fillStyle = "rgba(0,0,0,0.1)";
         ctx.fillRect(-tapeW / 2, -10, tapeW, tapeH);
-        // Draw Tape
         ctx.fillStyle = "rgba(255, 255, 240, 0.75)";
         ctx.fillRect(-tapeW / 2, -15, tapeW, tapeH);
         ctx.restore();
@@ -246,14 +246,11 @@ const PolaroidStudio = () => {
         ctx.textAlign = "right";
         ctx.fillText(dateStr, pLeft + photoWidth - (10), pTop + photoHeight - (15));
     }
-
     if (caption) {
         ctx.fillStyle = frameColor === '#2d3436' ? '#ffffff' : '#333333';
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.font = fontType === 'hand' 
-            ? `${36 * multiplier}px 'Caveat', cursive` 
-            : `${28 * multiplier}px 'Cutive Mono', monospace`;
+        ctx.font = fontType === 'hand' ? `${36 * multiplier}px 'Caveat', cursive` : `${28 * multiplier}px 'Cutive Mono', monospace`;
         ctx.fillText(caption, targetWidth / 2, pTop + photoHeight + (pBottom / 2));
     }
 
@@ -266,12 +263,9 @@ const PolaroidStudio = () => {
         } else {
             setGeneratedImage(dataUrl);
         }
-    } catch (e) {
-        setGeneratedImage(dataUrl);
-    }
+    } catch (e) { setGeneratedImage(dataUrl); }
   };
 
-  // --- DRAG ---
   const handleDragStart = (e) => {
     if (!image) return;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -323,14 +317,18 @@ const PolaroidStudio = () => {
   const colors = ['#ffffff', '#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#bdb2ff', '#2d3436'];
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-10 px-4 relative bg-slate-100/50">
-      <div className="mb-6 font-semibold text-gray-400 tracking-widest text-sm uppercase">
-        Polaroid <span className="text-gray-800">Studio</span>
+    <div className="min-h-screen flex flex-col items-center py-10 px-4 relative bg-neutral-900 text-white overflow-x-hidden selection:bg-rose-500/30">
+      
+      {/* HEADER */}
+      <div className="mb-8 font-bold tracking-[0.2em] text-xs uppercase text-neutral-500 flex items-center gap-2">
+        <Camera size={16} className="text-rose-500" />
+        Polaroid <span className="text-white">Studio</span>
       </div>
 
-      <div className="flex bg-white p-1 rounded-lg shadow-sm border border-gray-100 mb-8">
+      {/* FORMAT SWITCHER (Glass) */}
+      <div className="flex bg-white/5 backdrop-blur-md p-1 rounded-xl border border-white/10 mb-8">
         {Object.keys(formatConfig).map((key) => (
-            <button key={key} onClick={() => setFormat(key)} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${format === key ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <button key={key} onClick={() => setFormat(key)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${format === key ? 'bg-white text-black shadow-lg' : 'text-neutral-400 hover:text-white hover:bg-white/5'}`}>
                 {formatConfig[key].icon}
                 {formatConfig[key].label}
             </button>
@@ -341,33 +339,28 @@ const PolaroidStudio = () => {
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTilt({x:0, y:0})}
-        className="w-full flex flex-col items-center gap-6 perspective-[1000px]"
-        style={{ perspective: '1000px' }}
+        className="w-full flex flex-col items-center gap-8 perspective-[1200px]"
+        style={{ perspective: '1200px' }}
       >
         
         {/* FRAME */}
         <div 
           ref={frameRef}
-          className={`w-full relative select-none transition-all duration-300 ease-in-out ${currentFormat.frameClass}`}
+          className={`w-full relative select-none transition-all duration-300 ease-out ${currentFormat.frameClass}`}
           style={{ 
             backgroundColor: frameColor, 
             padding: currentFormat.padding, 
             borderRadius: '2px',
             transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-            boxShadow: `0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1), ${tilt.y * -2}px ${tilt.x * 2}px 20px rgba(0,0,0,0.15)`
+            boxShadow: `0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.05), ${tilt.y * -2}px ${tilt.x * 2}px 30px rgba(0,0,0,0.5)`
           }}
         >
-          {/* TAPE VISUAL */}
-          {showTape && (
-             <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-32 h-8 bg-yellow-50/60 rotate-1 shadow-sm backdrop-blur-[1px] z-20 pointer-events-none border border-white/40"></div>
-          )}
-
-          {/* Paper Texture */}
+          {showTape && <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-32 h-8 bg-yellow-50/80 rotate-1 shadow-md backdrop-blur-[1px] z-20 pointer-events-none border border-white/40 mix-blend-hard-light"></div>}
           <div className="absolute inset-0 pointer-events-none opacity-[0.03] mix-blend-multiply" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")` }}></div>
 
-          {/* MASK AREA */}
+          {/* MASK */}
           <div 
-            className={`mask-area w-full bg-gray-100 overflow-hidden relative cursor-grab active:cursor-grabbing rounded-[1px] shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)] ${currentFormat.aspectClass}`}
+            className={`mask-area w-full bg-neutral-100 overflow-hidden relative cursor-grab active:cursor-grabbing rounded-[1px] shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)] ${currentFormat.aspectClass}`}
             onMouseDown={handleDragStart}
             onTouchStart={handleDragStart}
           >
@@ -380,70 +373,90 @@ const PolaroidStudio = () => {
                       className="absolute max-w-none origin-top-left touch-none select-none pointer-events-none"
                       onLoad={handleImageLoad}
                       style={{
+                        width: baseDims.w * zoom, // DYNAMIC ZOOM
+                        height: baseDims.h * zoom,
                         transform: `translate(${position.x}px, ${position.y}px)`,
-                        filter: isDeveloping ? 'brightness(0.2) sepia(1) blur(2px)' : filterStyles[activeFilter],
-                        transition: isDeveloping ? 'none' : 'filter 2.5s ease-in-out'
+                        filter: isDeveloping ? 'brightness(0.2) sepia(1) blur(4px)' : filterStyles[activeFilter],
+                        transition: isDeveloping ? 'none' : 'filter 3s cubic-bezier(0.4, 0, 0.2, 1)'
                       }}
                     />
-                    <div className={`absolute inset-0 bg-[#0a0a0a] pointer-events-none transition-opacity duration-[2500ms] ease-in-out ${isDeveloping ? 'opacity-90' : 'opacity-0'}`} />
+                    <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity duration-[3000ms] ease-out ${isDeveloping ? 'opacity-100' : 'opacity-0'}`} />
                 </>
              ) : (
-                <div onClick={() => fileInputRef.current?.click()} className="w-full h-full flex flex-col items-center justify-center text-gray-400 hover:bg-gray-200 transition-colors cursor-pointer">
+                <div onClick={() => fileInputRef.current?.click()} className="w-full h-full flex flex-col items-center justify-center text-neutral-300 hover:bg-neutral-200/50 hover:text-neutral-400 transition-colors cursor-pointer group">
                     {isProcessing ? (
-                        <div className="w-8 h-8 border-4 border-gray-300 border-t-purple-500 rounded-full animate-spin"></div>
+                        <div className="w-8 h-8 border-4 border-neutral-300 border-t-neutral-500 rounded-full animate-spin"></div>
                     ) : (
                         <>
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm mb-2 shadow-inner"><Camera size={20} /></div>
-                            <span className="text-sm font-medium">Tap to Upload</span>
+                            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-3 shadow-inner group-hover:scale-110 transition-transform"><Camera size={24} className="opacity-50" /></div>
+                            <span className="text-xs font-bold tracking-widest uppercase opacity-50">Tap to Load</span>
                         </>
                     )}
                 </div>
              )}
              
-             {showLeak && <div className="absolute inset-0 pointer-events-none mix-blend-screen opacity-60" style={{ background: 'linear-gradient(45deg, rgba(255,150,50,0.5) 0%, rgba(255,50,50,0.1) 40%, transparent 100%)' }}></div>}
-             
-             {showGrain && <div className="absolute inset-0 opacity-30 pointer-events-none mix-blend-overlay" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`}}></div>}
+             {showLeak && <div className="absolute inset-0 pointer-events-none mix-blend-screen opacity-60" style={{ background: 'linear-gradient(45deg, rgba(255,150,50,0.4) 0%, rgba(255,50,50,0.1) 40%, transparent 100%)' }}></div>}
+             {showVignette && <div className="absolute inset-0 pointer-events-none mix-blend-multiply opacity-80" style={{ background: 'radial-gradient(circle, transparent 50%, rgba(0,0,0,0.4) 100%)' }}></div>}
+             {showGrain && <div className="absolute inset-0 opacity-40 pointer-events-none mix-blend-overlay" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`}}></div>}
              
              {showDate && (
                  <input 
                     type="text"
                     value={dateStr}
                     onChange={(e) => setDateStr(e.target.value)}
-                    className="absolute bottom-4 right-4 text-[#ff9f43] font-bold text-lg font-mono tracking-widest opacity-90 drop-shadow-md bg-transparent border-none outline-none text-right w-[150px] cursor-text hover:opacity-100"
-                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
+                    className="absolute bottom-4 right-4 text-[#ff9f43] font-bold text-lg font-mono tracking-widest opacity-80 drop-shadow-sm bg-transparent border-none outline-none text-right w-[150px] cursor-text hover:opacity-100 placeholder:text-[#ff9f43]/50 focus:opacity-100"
+                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}
                  />
              )}
           </div>
 
           <input type="text" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Write a caption..." maxLength={25}
-            className={`absolute bottom-6 left-1/2 -translate-x-1/2 w-[85%] text-center bg-transparent border-none outline-none text-2xl placeholder:text-black/10`}
+            className={`absolute bottom-6 left-1/2 -translate-x-1/2 w-[85%] text-center bg-transparent border-none outline-none text-2xl placeholder:text-black/5`}
             style={{ fontFamily: fontType === 'hand' ? '"Caveat", cursive' : '"Cutive Mono", monospace', color: frameColor === '#2d3436' ? 'white' : '#333' }}
           />
         </div>
 
-        {/* TOOLBAR */}
-        <div className="flex gap-2 bg-white p-2 rounded-full shadow-lg shadow-gray-200/50 items-center transform -translate-y-2 z-10 border border-gray-100">
-            <button onClick={toggleDate} title="Date Stamp" className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${showDate ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-100'}`}><Calendar size={18} /></button>
-            <button onClick={() => setShowGrain(!showGrain)} title="Film Grain" className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${showGrain ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-100'}`}><Sparkles size={18} /></button>
-            <button onClick={() => setShowLeak(!showLeak)} title="Light Leak" className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${showLeak ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-100'}`}><Sun size={18} /></button>
-            <button onClick={() => setShowTape(!showTape)} title="Washi Tape" className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${showTape ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-100'}`}><StickyNote size={18} /></button>
-            <div className="w-[1px] h-6 bg-gray-200 mx-1"></div>
-            <button onClick={() => setFontType(prev => prev === 'hand' ? 'type' : 'hand')} title="Switch Font" className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${fontType === 'type' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-100'}`}><Type size={18} /></button>
-            <div className="w-[1px] h-6 bg-gray-200 mx-1"></div>
-            <button onClick={cycleFilter} className="px-3 py-2 rounded-full bg-gray-100 text-xs font-bold text-gray-600 hover:bg-gray-200 min-w-[70px] uppercase tracking-wide">{activeFilter === 'bw' ? 'B&W' : activeFilter}</button>
+        {/* TOOLBAR (Glass) */}
+        <div className="flex flex-col items-center gap-3 w-full max-w-[90%]">
+             {/* ZOOM SLIDER (New) */}
+             {image && (
+                <div className="flex items-center gap-3 bg-black/40 backdrop-blur-xl px-4 py-2 rounded-xl border border-white/10 w-full max-w-[200px]">
+                    <ZoomIn size={14} className="text-neutral-400" />
+                    <input 
+                        type="range" min="1" max="3" step="0.1" 
+                        value={zoom} 
+                        onChange={(e) => setZoom(parseFloat(e.target.value))}
+                        className="w-full accent-white h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                    />
+                </div>
+             )}
+
+            <div className="flex flex-wrap justify-center gap-2 bg-black/40 backdrop-blur-xl p-3 rounded-2xl shadow-2xl border border-white/10">
+                <button onClick={toggleDate} title="Date Stamp" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${showDate ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><Calendar size={18} /></button>
+                <button onClick={() => setShowVignette(!showVignette)} title="Vignette" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${showVignette ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><CircleDashed size={18} /></button>
+                <button onClick={() => setShowGrain(!showGrain)} title="Film Grain" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${showGrain ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><Sparkles size={18} /></button>
+                <button onClick={() => setShowLeak(!showLeak)} title="Light Leak" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${showLeak ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><Sun size={18} /></button>
+                <button onClick={() => setShowTape(!showTape)} title="Washi Tape" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${showTape ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><StickyNote size={18} /></button>
+                <div className="w-[1px] h-8 bg-white/10 mx-1"></div>
+                <button onClick={() => setFontType(prev => prev === 'hand' ? 'type' : 'hand')} title="Switch Font" className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${fontType === 'type' ? 'bg-white text-black' : 'text-neutral-400 hover:bg-white/10 hover:text-white'}`}><Type size={18} /></button>
+                <div className="w-[1px] h-8 bg-white/10 mx-1"></div>
+                <button onClick={cycleFilter} className="px-4 h-10 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-neutral-300 hover:bg-white/20 hover:text-white min-w-[70px] uppercase tracking-wide transition-colors">{activeFilter === 'bw' ? 'B&W' : activeFilter}</button>
+            </div>
         </div>
 
+        {/* COLORS */}
         <div className="flex gap-3 overflow-x-auto py-4 px-2 w-full justify-center scrollbar-hide">
-            {colors.map(c => <button key={c} onClick={() => setFrameColor(c)} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 flex-shrink-0 shadow-sm ${frameColor === c ? 'border-gray-800 scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}
+            {colors.map(c => <button key={c} onClick={() => setFrameColor(c)} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 flex-shrink-0 shadow-sm ${frameColor === c ? 'border-white scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}
         </div>
 
-        <div className="flex gap-4 w-full justify-center mt-2 pb-10">
-             <button onClick={() => { setImage(null); setCaption(''); setPosition({x:0, y:0}); }} className="px-6 py-3 rounded-xl border border-gray-200 text-gray-500 font-semibold flex items-center gap-2 hover:bg-gray-50 transition-colors shadow-sm bg-white"><RotateCcw size={16} /> Reset</button>
+        {/* ACTIONS */}
+        <div className="flex gap-4 w-full justify-center mt-2 pb-20">
+             <button onClick={() => { setImage(null); setCaption(''); setPosition({x:0, y:0}); }} className="px-6 py-4 rounded-2xl bg-white/5 border border-white/10 text-neutral-400 font-semibold flex items-center gap-2 hover:bg-white/10 hover:text-white transition-colors"><RotateCcw size={18} /> Reset</button>
              <input ref={fileInputRef} type="file" accept="image/*, .heic, .heif" onChange={handleUpload} className="hidden" />
              {image ? (
-                <button onClick={handleSave} className="flex-1 max-w-[160px] px-6 py-3 rounded-xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2 shadow-xl shadow-gray-900/20 hover:bg-black hover:-translate-y-1 transition-all"><Share size={16} /> Save</button>
+                <button onClick={handleSave} className="flex-1 max-w-[200px] px-8 py-4 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 transition-all"><Share size={18} /> Save Photo</button>
              ) : (
-                <button onClick={() => fileInputRef.current?.click()} className="flex-1 max-w-[160px] px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold flex items-center justify-center gap-2 hover:bg-gray-300 transition-colors"><Upload size={16} /> Photo</button>
+                <button onClick={() => fileInputRef.current?.click()} className="flex-1 max-w-[200px] px-8 py-4 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 hover:scale-105 transition-transform"><Upload size={18} /> Add Photo</button>
              )}
         </div>
       </div>
@@ -453,9 +466,9 @@ const PolaroidStudio = () => {
       {generatedImage && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
             <button onClick={() => setGeneratedImage(null)} className="absolute top-4 right-4 text-white/70 hover:text-white p-2"><X size={32} /></button>
-            <div className="text-white text-center mb-6 space-y-1"><p className="font-bold text-xl">Ready!</p><p className="text-sm text-white/60">Long-press image to "Save to Photos"</p></div>
-            <img src={generatedImage} alt="Generated Polaroid" className="max-h-[60vh] w-auto shadow-2xl rounded-sm" />
-            <a href={generatedImage} download={`polaroid-${Date.now()}.png`} className="mt-8 px-8 py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-gray-200 transition-colors flex items-center gap-2"><Download size={16} /> Download File</a>
+            <div className="text-white text-center mb-6 space-y-1"><p className="font-bold text-xl">Developing Complete</p><p className="text-sm text-neutral-400">Long-press image to Save to Photos</p></div>
+            <img src={generatedImage} alt="Generated Polaroid" className="max-h-[60vh] w-auto shadow-2xl rounded-sm border border-white/10" />
+            <a href={generatedImage} download={`polaroid-${Date.now()}.png`} className="mt-8 px-8 py-4 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 transition-colors flex items-center gap-2"><Download size={16} /> Download File</a>
         </div>
       )}
     </div>
